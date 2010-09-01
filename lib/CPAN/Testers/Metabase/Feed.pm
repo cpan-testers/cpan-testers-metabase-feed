@@ -8,13 +8,14 @@ package CPAN::Testers::Metabase::Feed;
 # ABSTRACT: Generate Atom feed for CPAN Testers Reports
 
 use Moose;
-use MooseX::Types::ISO8601;
+use MooseX::Types::ISO8601 qw/ ISO8601DateTimeStr /;
 
 use Data::GUID;
-use DateTime::Format::ISO8601;
 use DateTime;
+use DateTime::Format::ISO8601;
 use File::Slurp qw/write_file/;
 use JSON;
+use Metabase::Librarian 0.013; # bug fixes on extraction
 use XML::Feed;
 
 use namespace::autoclean;
@@ -34,15 +35,14 @@ has 'ct_metabase' => (
 
 =attr since
 
-An ISO8601 date time string (or DateTime object).  The feed will contain
-all reports since the given date.  It defaults to one hour before
-DateTime->now().
+An ISO8601 date time string. The feed will contain all reports since the given
+date.  It defaults to "now" minus one hour.
 
 =cut
 
 has 'since' => (
   is        => 'ro',
-  isa       => 'ISO8601DateTimeString',
+  isa       => ISO8601DateTimeStr,
   lazy      => 1,
   builder   => '_build_since',
 );
@@ -55,7 +55,8 @@ has '_feed' => (
 );
 
 sub _build_since {
-  my $dt = DateTime->now->subtract( hours => 1 );
+  my $dt = DateTime->now;
+  $dt->subtract( hours => 1 );
   return $dt->iso8601 . "Z";
 }
 
@@ -66,10 +67,12 @@ sub _build__feed {
   my $mb = $self->ct_metabase;
   my $librarian = $mb->public_librarian;
   my $json = JSON->new->pretty;
+  my $since = $self->since;
+  $since =~ s/Z?$/Z/;
 
   my $guids = $librarian->search(
     'core.type' => 'CPAN-Testers-Fact-TestSummary',
-    'core.update_time' => { ">", $self->since },
+    'core.update_time' => { ">", $since },
     -desc => 'core.update_time',
   );
 
@@ -135,8 +138,8 @@ atomically.
 
 sub save {
   my ($self, $filename) = @_;
-  Carp::croak( "No filename argument provided to save()" );
-  return write_file( $filename, { atomic => 1 }, $self->as_xml );
+  Carp::croak( "No filename argument provided to save()" ) unless $filename;
+  return write_file( $filename, { atomic => 1, binmode => ":utf8" }, $self->as_xml );
 }
 
 my %creator_fn;
